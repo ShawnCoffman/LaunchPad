@@ -69,6 +69,43 @@ public sealed class ConfigStoreTests
     }
 
     [Fact]
+    public void Load_DoesNotUseLocalConfig_WhenSharedConfigMissingAndFallbackDisabled()
+    {
+        var fileSystem = new FakeFileSystem();
+        var appPaths = new FakeAppPaths();
+        var settings = new LocalAppSettings
+        {
+            UseSharedConfig = true,
+            SharedConfigPath = @"\\server\launchpad.shared.json",
+            FallbackToLocalOnly = false
+        };
+        fileSystem.AddFile(appPaths.AppSettingsPath, AppSettingsSerializer.Serialize(settings));
+        var appSettingsStore = new AppSettingsStore(appPaths, fileSystem);
+        var store = new ConfigStore(appPaths, appSettingsStore, fileSystem, new LaunchpadConfigMerger());
+
+        var state = store.Load();
+
+        Assert.False(state.SharedConfigLoaded);
+        Assert.Equal("Shared config unavailable; local-only fallback disabled", state.SharedConfigStatus);
+        Assert.Empty(state.EffectiveConfig.Tabs);
+    }
+
+    [Fact]
+    public void Load_UsesDefaults_WhenUserConfigJsonIsInvalid()
+    {
+        var fileSystem = new FakeFileSystem();
+        var appPaths = new FakeAppPaths();
+        fileSystem.AddFile(appPaths.UserConfigPath, "{ invalid json");
+        var appSettingsStore = new AppSettingsStore(appPaths, fileSystem);
+        var store = new ConfigStore(appPaths, appSettingsStore, fileSystem, new LaunchpadConfigMerger());
+
+        var state = store.Load();
+
+        Assert.Single(state.UserConfig.Tabs);
+        Assert.Equal("General", state.UserConfig.Tabs[0].Name);
+    }
+
+    [Fact]
     public void Merge_UsesUserOverrideForSharedButton()
     {
         var shared = new LaunchpadConfig

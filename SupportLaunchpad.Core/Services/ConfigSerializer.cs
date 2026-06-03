@@ -16,7 +16,26 @@ public static class ConfigSerializer
 
     public static LaunchpadConfig Deserialize(string json)
     {
-        return JsonSerializer.Deserialize<LaunchpadConfig>(json, Options) ?? new LaunchpadConfig();
+        try
+        {
+            return JsonSerializer.Deserialize<LaunchpadConfig>(json, Options) ?? new LaunchpadConfig();
+        }
+        catch (JsonException)
+        {
+            return new LaunchpadConfig();
+        }
+    }
+
+    public static LaunchpadConfig DeserializeOrDefault(string json, LaunchpadConfig fallback)
+    {
+        try
+        {
+            return JsonSerializer.Deserialize<LaunchpadConfig>(json, Options) ?? fallback;
+        }
+        catch (JsonException)
+        {
+            return fallback;
+        }
     }
 
     public static string Serialize(LaunchpadConfig config)

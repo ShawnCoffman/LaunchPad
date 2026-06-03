@@ -138,22 +138,17 @@ public sealed class MainForm : Form
         {
             menu.Items.Add("Edit Button", null, (_, _) => EditButton(tab.Id, button, false));
             menu.Items.Add("Delete Button", null, (_, _) => DeleteButton(button));
-        }
-        else
-        {
-            menu.Items.Add("Customize Button", null, (_, _) => EditButton(tab.Id, button, false));
-            menu.Items.Add("Hide Button", null, (_, _) => DeleteButton(button));
-        }
 
-        var moveToTabMenu = new ToolStripMenuItem("Move to Tab");
-        foreach (var candidate in _effectiveConfig.Tabs.Where(candidate => !candidate.Id.Equals(tab.Id, StringComparison.OrdinalIgnoreCase)))
-        {
-            moveToTabMenu.DropDownItems.Add(candidate.Name, null, (_, _) => MoveButtonToTab(tab.Id, candidate.Id, button.Id));
-        }
+            var moveToTabMenu = new ToolStripMenuItem("Move to Tab");
+            foreach (var candidate in _effectiveConfig.Tabs.Where(candidate => !candidate.Id.Equals(tab.Id, StringComparison.OrdinalIgnoreCase)))
+            {
+                moveToTabMenu.DropDownItems.Add(candidate.Name, null, (_, _) => MoveButtonToTab(tab.Id, candidate.Id, button.Id));
+            }
 
-        menu.Items.Add(moveToTabMenu);
-        menu.Items.Add("Move Left", null, (_, _) => MoveButton(tab.Id, button.Id, -1));
-        menu.Items.Add("Move Right", null, (_, _) => MoveButton(tab.Id, button.Id, 1));
+            menu.Items.Add(moveToTabMenu);
+            menu.Items.Add("Move Left", null, (_, _) => MoveButton(tab.Id, button.Id, -1));
+            menu.Items.Add("Move Right", null, (_, _) => MoveButton(tab.Id, button.Id, 1));
+        }
         menu.Show(Cursor.Position);
     }
 
@@ -217,7 +212,13 @@ public sealed class MainForm : Form
             return;
         }
 
-        _userConfig = _userConfigEditor.AddTab(_userConfig, prompt.Value);
+        if (string.IsNullOrWhiteSpace(prompt.Value))
+        {
+            MessageBox.Show(this, "Tab name is required.", "Validation Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        _userConfig = _userConfigEditor.AddTab(_userConfig, _effectiveConfig, prompt.Value);
         SaveAndReload();
     }
 
@@ -232,6 +233,12 @@ public sealed class MainForm : Form
         using var prompt = new TextPromptForm("Rename Tab", "Tab Name", tab.Name);
         if (prompt.ShowDialog(this) != DialogResult.OK)
         {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(prompt.Value))
+        {
+            MessageBox.Show(this, "Tab name is required.", "Validation Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
         }
 

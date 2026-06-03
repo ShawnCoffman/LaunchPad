@@ -44,6 +44,19 @@ public sealed class ConfigStore
         }
 
         var userConfig = LoadConfigOrDefault(_appPaths.UserConfigPath, LaunchpadConfigFactory.CreateDefaultUserConfig());
+        if (appSettings.UseSharedConfig && !sharedConfigLoaded && !appSettings.FallbackToLocalOnly)
+        {
+            return new MergedLaunchpadState
+            {
+                AppSettings = appSettings,
+                SharedConfig = sharedConfig,
+                UserConfig = userConfig,
+                EffectiveConfig = new LaunchpadConfig { Tabs = [] },
+                SharedConfigLoaded = false,
+                SharedConfigStatus = "Shared config unavailable; local-only fallback disabled"
+            };
+        }
+
         var effectiveConfig = _merger.Merge(sharedConfig, userConfig);
 
         return new MergedLaunchpadState
@@ -91,6 +104,6 @@ public sealed class ConfigStore
         }
 
         var json = _fileSystem.ReadAllText(path);
-        return string.IsNullOrWhiteSpace(json) ? fallback : ConfigSerializer.Deserialize(json);
+        return string.IsNullOrWhiteSpace(json) ? fallback : ConfigSerializer.DeserializeOrDefault(json, fallback);
     }
 }

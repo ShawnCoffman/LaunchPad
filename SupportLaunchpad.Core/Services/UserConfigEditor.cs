@@ -4,12 +4,22 @@ namespace SupportLaunchpad.Core.Services;
 
 public sealed class UserConfigEditor
 {
-    public LaunchpadConfig AddTab(LaunchpadConfig userConfig, string name)
+    public LaunchpadConfig AddTab(LaunchpadConfig userConfig, LaunchpadConfig effectiveConfig, string name)
     {
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            throw new ArgumentException("Tab name is required.", nameof(name));
+        }
+
         var updated = userConfig.Clone();
+        var existingIds = effectiveConfig.Tabs
+            .Select(tab => tab.Id)
+            .Concat(updated.Tabs.Select(tab => tab.Id))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
         updated.Tabs.Add(new LaunchpadTab
         {
-            Id = CreateId(name),
+            Id = CreateUniqueId(name, existingIds),
             Name = name.Trim(),
             IsReadOnly = false,
             Buttons = []
@@ -20,6 +30,11 @@ public sealed class UserConfigEditor
 
     public LaunchpadConfig RenameTab(LaunchpadConfig userConfig, LaunchpadConfig effectiveConfig, string tabId, string newName)
     {
+        if (string.IsNullOrWhiteSpace(newName))
+        {
+            throw new ArgumentException("Tab name is required.", nameof(newName));
+        }
+
         var updated = userConfig.Clone();
         var tab = GetOrCreateEditableTab(updated, effectiveConfig, tabId);
         tab.Name = newName.Trim();
@@ -44,6 +59,11 @@ public sealed class UserConfigEditor
     {
         var updated = userConfig.Clone();
         RemoveButtonEverywhere(updated, button.Id);
+
+        if (IsReadOnlyEffectiveButton(effectiveConfig, button.Id))
+        {
+            return updated;
+        }
 
         var tab = GetOrCreateEditableTab(updated, effectiveConfig, tabId);
         button.IsReadOnly = false;
@@ -81,6 +101,11 @@ public sealed class UserConfigEditor
             .Buttons.First(button => button.Id.Equals(buttonId, StringComparison.OrdinalIgnoreCase))
             .Clone();
 
+        if (effectiveButton.IsReadOnly)
+        {
+            return userConfig.Clone();
+        }
+
         effectiveButton.IsReadOnly = false;
         effectiveButton.ModifiedUtc = DateTime.UtcNow;
 
@@ -91,13 +116,16 @@ public sealed class UserConfigEditor
 
     public LaunchpadConfig MoveButtonWithinTab(LaunchpadConfig userConfig, LaunchpadConfig effectiveConfig, string tabId, string buttonId, int direction)
     {
+        var effectiveButton = effectiveConfig.Tabs
+            .First(tab => tab.Id.Equals(tabId, StringComparison.OrdinalIgnoreCase))
+            .Buttons.FirstOrDefault(button => button.Id.Equals(buttonId, StringComparison.OrdinalIgnoreCase));
+        if (effectiveButton?.IsReadOnly == true)
+        {
+            return userConfig.Clone();
+        }
+
         var updated = userConfig.Clone();
         var editableTab = GetOrCreateEditableTab(updated, effectiveConfig, tabId);
-        editableTab.Buttons = effectiveConfig.Tabs
-            .First(tab => tab.Id.Equals(tabId, StringComparison.OrdinalIgnoreCase))
-            .Buttons
-            .Select(button => button.Clone())
-            .ToList();
 
         var index = editableTab.Buttons.FindIndex(button => button.Id.Equals(buttonId, StringComparison.OrdinalIgnoreCase));
         if (index < 0)
@@ -133,14 +161,17 @@ public sealed class UserConfigEditor
 
         var effectiveTab = effectiveConfig.Tabs.First(tab => tab.Id.Equals(tabId, StringComparison.OrdinalIgnoreCase)).Clone();
         effectiveTab.IsReadOnly = false;
-        effectiveTab.Buttons = effectiveTab.Buttons.Select(button =>
-        {
-            button.IsReadOnly = false;
-            return button;
-        }).ToList();
+        effectiveTab.Buttons = [];
         userConfig.Tabs.Add(effectiveTab);
         userConfig.HiddenTabIds.RemoveAll(id => id.Equals(tabId, StringComparison.OrdinalIgnoreCase));
         return effectiveTab;
+    }
+
+    private static bool IsReadOnlyEffectiveButton(LaunchpadConfig effectiveConfig, string buttonId)
+    {
+        return effectiveConfig.Tabs
+            .SelectMany(tab => tab.Buttons)
+            .Any(button => button.Id.Equals(buttonId, StringComparison.OrdinalIgnoreCase) && button.IsReadOnly);
     }
 
     public static string CreateId(string value)
@@ -153,5 +184,24 @@ public sealed class UserConfigEditor
             .Trim('-');
 
         return string.IsNullOrWhiteSpace(cleaned) ? Guid.NewGuid().ToString("N") : cleaned;
+    }
+
+    private static string CreateUniqueId(string value, ISet<string> existingIds)
+    {
+        var baseId = CreateId(value);
+        if (!existingIds.Contains(baseId))
+        {
+            return baseId;
+        }
+
+        var suffix = 2;
+        var candidate = $"{baseId}-{suffix}";
+        while (existingIds.Contains(candidate))
+        {
+            suffix++;
+            candidate = $"{baseId}-{suffix}";
+        }
+
+        return candidate;
     }
 }

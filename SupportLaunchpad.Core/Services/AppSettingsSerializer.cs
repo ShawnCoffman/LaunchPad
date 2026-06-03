@@ -13,7 +13,14 @@ public static class AppSettingsSerializer
 
     public static LocalAppSettings Deserialize(string json)
     {
-        return JsonSerializer.Deserialize<LocalAppSettings>(json, Options) ?? AppSettingsFactory.CreateDefault();
+        try
+        {
+            return JsonSerializer.Deserialize<LocalAppSettings>(json, Options) ?? AppSettingsFactory.CreateDefault();
+        }
+        catch (JsonException)
+        {
+            return AppSettingsFactory.CreateDefault();
+        }
     }
 
     public static string Serialize(LocalAppSettings settings)
