@@ -10,6 +10,12 @@ public interface IFileSystem
 
     void WriteAllText(string path, string contents);
 
+    void WriteAllTextAtomic(string path, string contents);
+
+    void AppendAllText(string path, string contents);
+
+    void CopyFile(string sourcePath, string destinationPath, bool overwrite);
+
     void CreateDirectory(string path);
 
     string GetFullPath(string path);

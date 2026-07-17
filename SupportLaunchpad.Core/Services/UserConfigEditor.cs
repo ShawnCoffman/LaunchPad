@@ -35,6 +35,11 @@ public sealed class UserConfigEditor
             throw new ArgumentException("Tab name is required.", nameof(newName));
         }
 
+        if (IsReadOnlyEffectiveTab(effectiveConfig, tabId))
+        {
+            return userConfig.Clone();
+        }
+
         var updated = userConfig.Clone();
         var tab = GetOrCreateEditableTab(updated, effectiveConfig, tabId);
         tab.Name = newName.Trim();
@@ -43,6 +48,11 @@ public sealed class UserConfigEditor
 
     public LaunchpadConfig DeleteTab(LaunchpadConfig userConfig, LaunchpadConfig effectiveConfig, string tabId)
     {
+        if (IsReadOnlyEffectiveTab(effectiveConfig, tabId))
+        {
+            return userConfig.Clone();
+        }
+
         var updated = userConfig.Clone();
         updated.Tabs.RemoveAll(tab => tab.Id.Equals(tabId, StringComparison.OrdinalIgnoreCase));
 
@@ -57,13 +67,13 @@ public sealed class UserConfigEditor
 
     public LaunchpadConfig UpsertButton(LaunchpadConfig userConfig, LaunchpadConfig effectiveConfig, string tabId, LaunchpadButton button)
     {
+        if (IsReadOnlyEffectiveTab(effectiveConfig, tabId) || IsReadOnlyEffectiveButton(effectiveConfig, button.Id))
+        {
+            return userConfig.Clone();
+        }
+
         var updated = userConfig.Clone();
         RemoveButtonEverywhere(updated, button.Id);
-
-        if (IsReadOnlyEffectiveButton(effectiveConfig, button.Id))
-        {
-            return updated;
-        }
 
         var tab = GetOrCreateEditableTab(updated, effectiveConfig, tabId);
         button.IsReadOnly = false;
@@ -82,8 +92,13 @@ public sealed class UserConfigEditor
         return updated;
     }
 
-    public LaunchpadConfig DeleteButton(LaunchpadConfig userConfig, string buttonId)
+    public LaunchpadConfig DeleteButton(LaunchpadConfig userConfig, LaunchpadConfig effectiveConfig, string buttonId)
     {
+        if (IsReadOnlyEffectiveButton(effectiveConfig, buttonId))
+        {
+            return userConfig.Clone();
+        }
+
         var updated = userConfig.Clone();
         RemoveButtonEverywhere(updated, buttonId);
         if (!updated.HiddenButtonIds.Contains(buttonId, StringComparer.OrdinalIgnoreCase))
@@ -96,6 +111,11 @@ public sealed class UserConfigEditor
 
     public LaunchpadConfig MoveButtonToTab(LaunchpadConfig userConfig, LaunchpadConfig effectiveConfig, string sourceTabId, string targetTabId, string buttonId)
     {
+        if (IsReadOnlyEffectiveTab(effectiveConfig, sourceTabId) || IsReadOnlyEffectiveTab(effectiveConfig, targetTabId))
+        {
+            return userConfig.Clone();
+        }
+
         var effectiveButton = effectiveConfig.Tabs
             .First(tab => tab.Id.Equals(sourceTabId, StringComparison.OrdinalIgnoreCase))
             .Buttons.First(button => button.Id.Equals(buttonId, StringComparison.OrdinalIgnoreCase))
@@ -109,13 +129,18 @@ public sealed class UserConfigEditor
         effectiveButton.IsReadOnly = false;
         effectiveButton.ModifiedUtc = DateTime.UtcNow;
 
-        var updated = DeleteButton(userConfig, buttonId);
+        var updated = DeleteButton(userConfig, effectiveConfig, buttonId);
         updated.HiddenButtonIds.RemoveAll(id => id.Equals(buttonId, StringComparison.OrdinalIgnoreCase));
         return UpsertButton(updated, effectiveConfig, targetTabId, effectiveButton);
     }
 
     public LaunchpadConfig MoveButtonWithinTab(LaunchpadConfig userConfig, LaunchpadConfig effectiveConfig, string tabId, string buttonId, int direction)
     {
+        if (IsReadOnlyEffectiveTab(effectiveConfig, tabId))
+        {
+            return userConfig.Clone();
+        }
+
         var effectiveButton = effectiveConfig.Tabs
             .First(tab => tab.Id.Equals(tabId, StringComparison.OrdinalIgnoreCase))
             .Buttons.FirstOrDefault(button => button.Id.Equals(buttonId, StringComparison.OrdinalIgnoreCase));
@@ -127,19 +152,24 @@ public sealed class UserConfigEditor
         var updated = userConfig.Clone();
         var editableTab = GetOrCreateEditableTab(updated, effectiveConfig, tabId);
 
-        var index = editableTab.Buttons.FindIndex(button => button.Id.Equals(buttonId, StringComparison.OrdinalIgnoreCase));
+        var effectiveOrder = effectiveConfig.Tabs
+            .First(tab => tab.Id.Equals(tabId, StringComparison.OrdinalIgnoreCase))
+            .Buttons.Select(button => button.Id)
+            .ToList();
+        var index = effectiveOrder.FindIndex(id => id.Equals(buttonId, StringComparison.OrdinalIgnoreCase));
         if (index < 0)
         {
             return updated;
         }
 
         var newIndex = index + direction;
-        if (newIndex < 0 || newIndex >= editableTab.Buttons.Count)
+        if (newIndex < 0 || newIndex >= effectiveOrder.Count)
         {
             return updated;
         }
 
-        (editableTab.Buttons[index], editableTab.Buttons[newIndex]) = (editableTab.Buttons[newIndex], editableTab.Buttons[index]);
+        (effectiveOrder[index], effectiveOrder[newIndex]) = (effectiveOrder[newIndex], effectiveOrder[index]);
+        editableTab.ButtonOrder = effectiveOrder;
         return updated;
     }
 
@@ -172,6 +202,12 @@ public sealed class UserConfigEditor
         return effectiveConfig.Tabs
             .SelectMany(tab => tab.Buttons)
             .Any(button => button.Id.Equals(buttonId, StringComparison.OrdinalIgnoreCase) && button.IsReadOnly);
+    }
+
+    private static bool IsReadOnlyEffectiveTab(LaunchpadConfig effectiveConfig, string tabId)
+    {
+        return effectiveConfig.Tabs.Any(tab =>
+            tab.Id.Equals(tabId, StringComparison.OrdinalIgnoreCase) && tab.IsReadOnly);
     }
 
     public static string CreateId(string value)

@@ -15,24 +15,31 @@ public sealed class FileLogger : ILogger
 
     public void LogLaunchAttempt(string buttonName, string actionType, string pathOrCommand, bool success, string? errorMessage)
     {
-        var directory = Path.GetDirectoryName(_appPaths.LogFilePath);
-        if (!string.IsNullOrWhiteSpace(directory))
+        try
         {
-            _fileSystem.CreateDirectory(directory);
+            var directory = Path.GetDirectoryName(_appPaths.LogFilePath);
+            if (!string.IsNullOrWhiteSpace(directory))
+            {
+                _fileSystem.CreateDirectory(directory);
+            }
+
+            var line = string.Join(" | ",
+                DateTimeOffset.UtcNow.ToString("O"),
+                $"Button={buttonName}",
+                $"ActionType={actionType}",
+                $"Target={pathOrCommand}",
+                $"Success={success}",
+                $"Error={errorMessage ?? string.Empty}");
+
+            _fileSystem.AppendAllText(_appPaths.LogFilePath, line + Environment.NewLine);
         }
-
-        var line = string.Join(" | ",
-            DateTimeOffset.UtcNow.ToString("O"),
-            $"Button={buttonName}",
-            $"ActionType={actionType}",
-            $"Target={pathOrCommand}",
-            $"Success={success}",
-            $"Error={errorMessage ?? string.Empty}");
-
-        var existing = _fileSystem.FileExists(_appPaths.LogFilePath)
-            ? _fileSystem.ReadAllText(_appPaths.LogFilePath)
-            : string.Empty;
-
-        _fileSystem.WriteAllText(_appPaths.LogFilePath, existing + line + Environment.NewLine);
+        catch (IOException)
+        {
+            // Logging must never prevent a configured target from launching.
+        }
+        catch (UnauthorizedAccessException)
+        {
+            // Logging must never prevent a configured target from launching.
+        }
     }
 }

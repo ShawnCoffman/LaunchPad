@@ -8,13 +8,16 @@ public sealed class LaunchpadSettings
 
     public List<string> AllowedScriptDirectories { get; set; } = [];
 
+    public bool RestrictPowerShellToAllowedDirectories { get; set; }
+
     public LaunchpadSettings Clone()
     {
         return new LaunchpadSettings
         {
             AllowPowerShellScripts = AllowPowerShellScripts,
             AllowRunAsAdmin = AllowRunAsAdmin,
-            AllowedScriptDirectories = [.. AllowedScriptDirectories]
+            AllowedScriptDirectories = [.. AllowedScriptDirectories],
+            RestrictPowerShellToAllowedDirectories = RestrictPowerShellToAllowedDirectories
         };
     }
 }

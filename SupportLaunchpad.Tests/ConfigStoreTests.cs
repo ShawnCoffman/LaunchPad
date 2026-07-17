@@ -65,7 +65,7 @@ public sealed class ConfigStoreTests
         var state = store.Load();
 
         Assert.False(state.SharedConfigLoaded);
-        Assert.Equal("Shared config unavailable, running local only", state.SharedConfigStatus);
+        Assert.Equal("Shared config unavailable or invalid, running local only", state.SharedConfigStatus);
     }
 
     [Fact]
@@ -103,6 +103,136 @@ public sealed class ConfigStoreTests
 
         Assert.Single(state.UserConfig.Tabs);
         Assert.Equal("General", state.UserConfig.Tabs[0].Name);
+    }
+
+    [Fact]
+    public void Load_FallsBackWhenSharedConfigJsonIsInvalid()
+    {
+        var fileSystem = new FakeFileSystem();
+        var appPaths = new FakeAppPaths();
+        var sharedPath = @"C:\Team\launchpad.shared.json";
+        fileSystem.AddFile(sharedPath, "{ invalid json");
+        fileSystem.AddFile(appPaths.AppSettingsPath, AppSettingsSerializer.Serialize(new LocalAppSettings
+        {
+            UseSharedConfig = true,
+            SharedConfigPath = sharedPath,
+            FallbackToLocalOnly = true
+        }));
+        var store = new ConfigStore(appPaths, new AppSettingsStore(appPaths, fileSystem), fileSystem, new LaunchpadConfigMerger());
+
+        var state = store.Load();
+
+        Assert.False(state.SharedConfigLoaded);
+        Assert.Single(state.EffectiveConfig.Tabs);
+        Assert.Contains("invalid", state.SharedConfigStatus);
+    }
+
+    [Fact]
+    public void Merge_DoesNotAllowUserToLoosenSharedSecurityOrReadOnlyPolicy()
+    {
+        var shared = new LaunchpadConfig
+        {
+            Settings = new LaunchpadSettings { AllowPowerShellScripts = false, AllowRunAsAdmin = false },
+            Tabs =
+            [
+                new LaunchpadTab
+                {
+                    Id = "team",
+                    Name = "Team",
+                    IsReadOnly = true,
+                    Buttons = [new LaunchpadButton { Id = "tool", Name = "Tool", IsReadOnly = true }]
+                }
+            ]
+        };
+        var user = new LaunchpadConfig
+        {
+            Settings = new LaunchpadSettings { AllowPowerShellScripts = true, AllowRunAsAdmin = true },
+            Tabs =
+            [
+                new LaunchpadTab
+                {
+                    Id = "team",
+                    Name = "Renamed",
+                    IsReadOnly = false,
+                    Buttons = [new LaunchpadButton { Id = "tool", Name = "Changed", IsReadOnly = false }]
+                }
+            ]
+        };
+
+        var merged = new LaunchpadConfigMerger().Merge(shared, user);
+
+        Assert.False(merged.Settings.AllowPowerShellScripts);
+        Assert.False(merged.Settings.AllowRunAsAdmin);
+        Assert.True(merged.Tabs[0].IsReadOnly);
+        Assert.True(merged.Tabs[0].Buttons[0].IsReadOnly);
+    }
+
+    [Fact]
+    public void Merge_EmptyScriptDirectoryIntersection_RemainsRestricted()
+    {
+        var shared = new LaunchpadConfig
+        {
+            Settings = new LaunchpadSettings
+            {
+                RestrictPowerShellToAllowedDirectories = true,
+                AllowedScriptDirectories = [@"C:\TeamScripts"]
+            }
+        };
+        var user = new LaunchpadConfig
+        {
+            Settings = new LaunchpadSettings
+            {
+                RestrictPowerShellToAllowedDirectories = true,
+                AllowedScriptDirectories = [@"D:\PersonalScripts"]
+            }
+        };
+
+        var merged = new LaunchpadConfigMerger().Merge(shared, user);
+
+        Assert.True(merged.Settings.RestrictPowerShellToAllowedDirectories);
+        Assert.Empty(merged.Settings.AllowedScriptDirectories);
+    }
+
+    [Fact]
+    public void Merge_DoesNotHideReadOnlyTeamContent()
+    {
+        var shared = new LaunchpadConfig
+        {
+            Tabs =
+            [
+                new LaunchpadTab
+                {
+                    Id = "required",
+                    Name = "Required",
+                    IsReadOnly = true,
+                    Buttons = [new LaunchpadButton { Id = "required-link", Name = "Required Link", IsReadOnly = true }]
+                }
+            ]
+        };
+        var user = new LaunchpadConfig
+        {
+            HiddenTabIds = ["required"],
+            HiddenButtonIds = ["required-link"]
+        };
+
+        var merged = new LaunchpadConfigMerger().Merge(shared, user);
+
+        Assert.Single(merged.Tabs);
+        Assert.Single(merged.Tabs[0].Buttons);
+    }
+
+    [Fact]
+    public void SaveSharedConfig_IncrementsVersionAndWritesConfig()
+    {
+        var fileSystem = new FakeFileSystem();
+        var appPaths = new FakeAppPaths();
+        var store = new ConfigStore(appPaths, new AppSettingsStore(appPaths, fileSystem), fileSystem, new LaunchpadConfigMerger());
+        var config = new LaunchpadConfig { Version = 3, Title = "Operations" };
+
+        store.SaveSharedConfig(@"C:\Team\launchpad.json", config);
+
+        Assert.Equal(4, config.Version);
+        Assert.Contains("Operations", fileSystem.ReadAllText(@"C:\Team\launchpad.json"));
     }
 
     [Fact]

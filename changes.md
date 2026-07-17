@@ -1,5 +1,18 @@
 # Changes
 
+## 2026-07-17
+
+### Team Management and Onboarding
+
+- Added a visual team configuration editor for tabs, resources, ordering, descriptions, and team-managed policy.
+- Added atomic shared-config publishing, revision increments, and a `.bak` safety copy.
+- Added Team and Personal resource indicators, search, refresh, description tooltips, and icon rendering.
+- Added environment-variable expansion for portable shared paths.
+- Added explicit PowerShell directory restriction semantics, including deny-all behavior when team and personal allowlists do not overlap.
+- Prevented personal configuration from hiding mandatory read-only team tabs and resources.
+- Filtered read-only destination tabs from personal resource editing.
+- Expanded regression coverage from 21 to 26 tests.
+
 ## 2026-06-02
 
 ### Repository Cleanup
