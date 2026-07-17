@@ -12,17 +12,19 @@ public sealed class ButtonEditorForm : Form
     private readonly TextBox _pathTextBox = new();
     private readonly TextBox _argumentsTextBox = new();
     private readonly TextBox _workingDirectoryTextBox = new();
+    private readonly TextBox _iconPathTextBox = new();
     private readonly CheckBox _runAsAdminCheckBox = new() { Text = "Run As Admin" };
+    private readonly CheckBox _readOnlyCheckBox = new() { Text = "Team-managed (members cannot edit or hide)" };
     private readonly Button _okButton = new() { Text = "OK", DialogResult = DialogResult.OK };
 
-    public ButtonEditorForm(IReadOnlyList<LaunchpadTab> tabs, string selectedTabId, LaunchpadButton button, bool readOnly)
+    public ButtonEditorForm(IReadOnlyList<LaunchpadTab> tabs, string selectedTabId, LaunchpadButton button, bool readOnly, bool allowPolicyEditing = false)
     {
         Button = button;
         SelectedTabId = selectedTabId;
 
         Text = readOnly ? "View Button" : "Edit Button";
         Width = 520;
-        Height = 360;
+        Height = 430;
         StartPosition = FormStartPosition.CenterParent;
         FormBorderStyle = FormBorderStyle.FixedDialog;
         MaximizeBox = false;
@@ -42,7 +44,9 @@ public sealed class ButtonEditorForm : Form
         _pathTextBox.Text = button.Path;
         _argumentsTextBox.Text = button.Arguments;
         _workingDirectoryTextBox.Text = button.WorkingDirectory;
+        _iconPathTextBox.Text = button.IconPath;
         _runAsAdminCheckBox.Checked = button.RunAsAdmin;
+        _readOnlyCheckBox.Checked = button.IsReadOnly;
 
         foreach (var actionType in Enum.GetValues<LaunchActionType>())
         {
@@ -50,7 +54,10 @@ public sealed class ButtonEditorForm : Form
         }
         _actionTypeComboBox.SelectedItem = button.ActionType;
 
-        var tabOptions = tabs.Select(tab => new TabOption(tab.Id, tab.Name)).ToList();
+        var tabOptions = tabs
+            .Where(tab => allowPolicyEditing || !tab.IsReadOnly || tab.Id.Equals(selectedTabId, StringComparison.OrdinalIgnoreCase))
+            .Select(tab => new TabOption(tab.Id, tab.Name))
+            .ToList();
         foreach (var tabOption in tabOptions)
         {
             _tabComboBox.Items.Add(tabOption);
@@ -64,7 +71,12 @@ public sealed class ButtonEditorForm : Form
         AddRow(layout, "Path / Command", _pathTextBox);
         AddRow(layout, "Arguments", _argumentsTextBox);
         AddRow(layout, "Working Directory", _workingDirectoryTextBox);
+        AddRow(layout, "Icon Path", _iconPathTextBox);
         layout.Controls.Add(_runAsAdminCheckBox, 1, layout.RowCount++);
+        if (allowPolicyEditing)
+        {
+            layout.Controls.Add(_readOnlyCheckBox, 1, layout.RowCount++);
+        }
 
         var buttons = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 42, FlowDirection = FlowDirection.RightToLeft };
         var cancelButton = new Button { Text = readOnly ? "Close" : "Cancel", DialogResult = DialogResult.Cancel };
@@ -95,7 +107,9 @@ public sealed class ButtonEditorForm : Form
         Button.Path = _pathTextBox.Text.Trim();
         Button.Arguments = _argumentsTextBox.Text.Trim();
         Button.WorkingDirectory = _workingDirectoryTextBox.Text.Trim();
+        Button.IconPath = _iconPathTextBox.Text.Trim();
         Button.RunAsAdmin = _runAsAdminCheckBox.Checked;
+        Button.IsReadOnly = _readOnlyCheckBox.Checked;
         Button.Id = string.IsNullOrWhiteSpace(Button.Id) ? UserConfigEditor.CreateId(Button.Name) : Button.Id;
         SelectedTabId = ((TabOption)_tabComboBox.SelectedItem!).Id;
     }

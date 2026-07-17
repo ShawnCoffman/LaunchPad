@@ -31,7 +31,8 @@ public sealed class LaunchService
                 throw new InvalidOperationException("PowerShell scripts are disabled by configuration.");
             }
 
-            if (settings.AllowedScriptDirectories.Count > 0 && !IsScriptAllowed(button.Path, settings.AllowedScriptDirectories))
+            if ((settings.RestrictPowerShellToAllowedDirectories || settings.AllowedScriptDirectories.Count > 0) &&
+                (settings.AllowedScriptDirectories.Count == 0 || !IsScriptAllowed(button.Path, settings.AllowedScriptDirectories)))
             {
                 throw new InvalidOperationException("This PowerShell script is outside the allowed directories.");
             }
@@ -39,11 +40,11 @@ public sealed class LaunchService
 
         return button.ActionType switch
         {
-            LaunchActionType.Exe => CreateProcessStartInfo(button.Path, button.Arguments, button.WorkingDirectory, button.RunAsAdmin && settings.AllowRunAsAdmin),
-            LaunchActionType.Folder => CreateProcessStartInfo("explorer.exe", QuoteIfNeeded(button.Path), button.WorkingDirectory, false),
+            LaunchActionType.Exe => CreateProcessStartInfo(Expand(button.Path), button.Arguments, Expand(button.WorkingDirectory), button.RunAsAdmin && settings.AllowRunAsAdmin),
+            LaunchActionType.Folder => CreateProcessStartInfo("explorer.exe", QuoteIfNeeded(Expand(button.Path)), Expand(button.WorkingDirectory), false),
             LaunchActionType.Url => CreateShellStartInfo(button.Path),
-            LaunchActionType.PowerShell => CreateProcessStartInfo("powershell.exe", BuildPowerShellArguments(button), button.WorkingDirectory, button.RunAsAdmin && settings.AllowRunAsAdmin),
-            LaunchActionType.Command => CreateProcessStartInfo("cmd.exe", $"/c {QuoteIfNeeded(button.Path)}", button.WorkingDirectory, button.RunAsAdmin && settings.AllowRunAsAdmin),
+            LaunchActionType.PowerShell => CreateProcessStartInfo("powershell.exe", BuildPowerShellArguments(button), Expand(button.WorkingDirectory), button.RunAsAdmin && settings.AllowRunAsAdmin),
+            LaunchActionType.Command => CreateProcessStartInfo("cmd.exe", BuildCommandArguments(button), Expand(button.WorkingDirectory), button.RunAsAdmin && settings.AllowRunAsAdmin),
             _ => throw new InvalidOperationException("Unsupported action type.")
         };
     }
@@ -101,7 +102,7 @@ public sealed class LaunchService
             "-ExecutionPolicy",
             "Bypass",
             "-File",
-            QuoteIfNeeded(button.Path)
+            QuoteIfNeeded(Expand(button.Path))
         };
 
         if (!string.IsNullOrWhiteSpace(button.Arguments))
@@ -110,6 +111,14 @@ public sealed class LaunchService
         }
 
         return string.Join(" ", parts);
+    }
+
+    private static string BuildCommandArguments(LaunchpadButton button)
+    {
+        var command = QuoteIfNeeded(button.Path);
+        return string.IsNullOrWhiteSpace(button.Arguments)
+            ? $"/c {command}"
+            : $"/c {command} {button.Arguments}";
     }
 
     private bool IsScriptAllowed(string scriptPath, IEnumerable<string> allowedDirectories)
@@ -136,4 +145,6 @@ public sealed class LaunchService
 
         return value.Contains(' ') ? $"\"{value}\"" : value;
     }
+
+    private static string Expand(string value) => Environment.ExpandEnvironmentVariables(value);
 }

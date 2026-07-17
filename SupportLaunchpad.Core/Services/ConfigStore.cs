@@ -31,15 +31,14 @@ public sealed class ConfigStore
         {
             if (!string.IsNullOrWhiteSpace(appSettings.SharedConfigPath) && _fileSystem.FileExists(appSettings.SharedConfigPath))
             {
-                sharedConfig = LoadConfigOrDefault(appSettings.SharedConfigPath, new LaunchpadConfig());
-                sharedConfigLoaded = true;
-                sharedConfigStatus = $"Mode: Team + Personal ({appSettings.SharedConfigPath})";
+                sharedConfigLoaded = TryLoadConfig(appSettings.SharedConfigPath, out sharedConfig);
+                sharedConfigStatus = sharedConfigLoaded
+                    ? $"Mode: Team + Personal ({appSettings.SharedConfigPath})"
+                    : GetSharedUnavailableStatus(appSettings);
             }
             else
             {
-                sharedConfigStatus = appSettings.FallbackToLocalOnly
-                    ? "Shared config unavailable, running local only"
-                    : "Shared config unavailable";
+                sharedConfigStatus = GetSharedUnavailableStatus(appSettings);
             }
         }
 
@@ -78,12 +77,33 @@ public sealed class ConfigStore
             _fileSystem.CreateDirectory(directory);
         }
 
-        _fileSystem.WriteAllText(_appPaths.UserConfigPath, ConfigSerializer.Serialize(config));
+        _fileSystem.WriteAllTextAtomic(_appPaths.UserConfigPath, ConfigSerializer.Serialize(config));
     }
 
     public void SaveAppSettings(LocalAppSettings settings)
     {
         _appSettingsStore.Save(settings);
+    }
+
+    public void SaveSharedConfig(string path, LaunchpadConfig config)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            throw new ArgumentException("A shared configuration path is required.", nameof(path));
+        }
+
+        var directory = Path.GetDirectoryName(path);
+        if (!string.IsNullOrWhiteSpace(directory))
+        {
+            _fileSystem.CreateDirectory(directory);
+        }
+
+        config.Version = Math.Max(1, config.Version + 1);
+        if (_fileSystem.FileExists(path))
+        {
+            _fileSystem.CopyFile(path, path + ".bak", true);
+        }
+        _fileSystem.WriteAllTextAtomic(path, ConfigSerializer.Serialize(config));
     }
 
     private void EnsureUserConfigExists()
@@ -98,12 +118,36 @@ public sealed class ConfigStore
 
     private LaunchpadConfig LoadConfigOrDefault(string path, LaunchpadConfig fallback)
     {
+        return TryLoadConfig(path, out var config) ? config : fallback;
+    }
+
+    private bool TryLoadConfig(string path, out LaunchpadConfig config)
+    {
+        config = new LaunchpadConfig();
         if (!_fileSystem.FileExists(path))
         {
-            return fallback;
+            return false;
         }
 
-        var json = _fileSystem.ReadAllText(path);
-        return string.IsNullOrWhiteSpace(json) ? fallback : ConfigSerializer.DeserializeOrDefault(json, fallback);
+        try
+        {
+            var json = _fileSystem.ReadAllText(path);
+            return !string.IsNullOrWhiteSpace(json) && ConfigSerializer.TryDeserialize(json, out config);
+        }
+        catch (IOException)
+        {
+            return false;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
+    private static string GetSharedUnavailableStatus(LocalAppSettings settings)
+    {
+        return settings.FallbackToLocalOnly
+            ? "Shared config unavailable or invalid, running local only"
+            : "Shared config unavailable or invalid";
     }
 }

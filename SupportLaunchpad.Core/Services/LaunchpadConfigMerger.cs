@@ -7,21 +7,30 @@ public sealed class LaunchpadConfigMerger
     public LaunchpadConfig Merge(LaunchpadConfig sharedConfig, LaunchpadConfig userConfig)
     {
         var effective = sharedConfig.Clone();
-        effective.Title = string.IsNullOrWhiteSpace(userConfig.Title) ? sharedConfig.Title : userConfig.Title;
+        effective.Title = sharedConfig.Tabs.Count > 0 &&
+                          string.Equals(userConfig.Title, "Support Launchpad", StringComparison.OrdinalIgnoreCase) &&
+                          !string.IsNullOrWhiteSpace(sharedConfig.Title)
+            ? sharedConfig.Title
+            : string.IsNullOrWhiteSpace(userConfig.Title) ? sharedConfig.Title : userConfig.Title;
         effective.Version = Math.Max(sharedConfig.Version, userConfig.Version);
-        effective.Settings = userConfig.Settings?.Clone() ?? sharedConfig.Settings.Clone();
+        effective.Settings = MergeSettings(sharedConfig.Settings, userConfig.Settings);
 
-        var sharedTabs = effective.Tabs.ToDictionary(tab => tab.Id, StringComparer.OrdinalIgnoreCase);
+        var sharedTabs = effective.Tabs
+            .GroupBy(tab => tab.Id, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
 
         foreach (var hiddenTabId in userConfig.HiddenTabIds)
         {
-            sharedTabs.Remove(hiddenTabId);
+            if (sharedTabs.TryGetValue(hiddenTabId, out var tab) && !tab.IsReadOnly)
+            {
+                sharedTabs.Remove(hiddenTabId);
+            }
         }
 
         foreach (var sharedTab in sharedTabs.Values)
         {
             sharedTab.Buttons = sharedTab.Buttons
-                .Where(button => !userConfig.HiddenButtonIds.Contains(button.Id, StringComparer.OrdinalIgnoreCase))
+                .Where(button => button.IsReadOnly || !userConfig.HiddenButtonIds.Contains(button.Id, StringComparer.OrdinalIgnoreCase))
                 .ToList();
         }
 
@@ -55,15 +64,18 @@ public sealed class LaunchpadConfigMerger
     {
         var mergedTab = sharedTab.Clone();
         mergedTab.Name = string.IsNullOrWhiteSpace(userTab.Name) ? sharedTab.Name : userTab.Name;
-        mergedTab.IsReadOnly = userTab.IsReadOnly;
+        mergedTab.IsReadOnly = sharedTab.IsReadOnly || userTab.IsReadOnly;
 
-        var sharedButtons = mergedTab.Buttons.ToDictionary(button => button.Id, StringComparer.OrdinalIgnoreCase);
+        var sharedButtons = mergedTab.Buttons
+            .GroupBy(button => button.Id, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
         var buttons = new List<LaunchpadButton>();
         var handledButtonIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var userButton in userTab.Buttons)
         {
-            if (hiddenButtonIds.Contains(userButton.Id, StringComparer.OrdinalIgnoreCase))
+            if (hiddenButtonIds.Contains(userButton.Id, StringComparer.OrdinalIgnoreCase) &&
+                (!sharedButtons.TryGetValue(userButton.Id, out var protectedButton) || !protectedButton.IsReadOnly))
             {
                 continue;
             }
@@ -82,12 +94,13 @@ public sealed class LaunchpadConfigMerger
 
         foreach (var sharedButton in sharedButtons.Values.Where(button =>
                      !handledButtonIds.Contains(button.Id) &&
-                     !hiddenButtonIds.Contains(button.Id, StringComparer.OrdinalIgnoreCase)))
+                     (button.IsReadOnly || !hiddenButtonIds.Contains(button.Id, StringComparer.OrdinalIgnoreCase))))
         {
             buttons.Add(sharedButton.Clone());
         }
 
-        mergedTab.Buttons = buttons;
+        mergedTab.ButtonOrder = [.. userTab.ButtonOrder];
+        mergedTab.Buttons = ApplyButtonOrder(buttons, userTab.ButtonOrder);
         return mergedTab;
     }
 
@@ -104,9 +117,56 @@ public sealed class LaunchpadConfigMerger
             WorkingDirectory = userButton.WorkingDirectory,
             RunAsAdmin = userButton.RunAsAdmin,
             IconPath = userButton.IconPath,
-            IsReadOnly = userButton.IsReadOnly,
+            IsReadOnly = sharedButton.IsReadOnly || userButton.IsReadOnly,
             CreatedUtc = sharedButton.CreatedUtc == default ? userButton.CreatedUtc : sharedButton.CreatedUtc,
             ModifiedUtc = userButton.ModifiedUtc == default ? sharedButton.ModifiedUtc : userButton.ModifiedUtc
         };
+    }
+
+    private static LaunchpadSettings MergeSettings(LaunchpadSettings? shared, LaunchpadSettings? user)
+    {
+        shared ??= new LaunchpadSettings();
+        user ??= new LaunchpadSettings();
+
+        var sharedRestricted = shared.RestrictPowerShellToAllowedDirectories || shared.AllowedScriptDirectories.Count > 0;
+        var userRestricted = user.RestrictPowerShellToAllowedDirectories || user.AllowedScriptDirectories.Count > 0;
+        var restrictDirectories = sharedRestricted || userRestricted;
+        var directories = (sharedRestricted, userRestricted) switch
+        {
+            (false, false) => [],
+            (true, false) => [.. shared.AllowedScriptDirectories],
+            (false, true) => [.. user.AllowedScriptDirectories],
+            (true, true) => shared.AllowedScriptDirectories
+                .Intersect(user.AllowedScriptDirectories, StringComparer.OrdinalIgnoreCase)
+                .ToList()
+        };
+
+        return new LaunchpadSettings
+        {
+            AllowPowerShellScripts = shared.AllowPowerShellScripts && user.AllowPowerShellScripts,
+            AllowRunAsAdmin = shared.AllowRunAsAdmin && user.AllowRunAsAdmin,
+            AllowedScriptDirectories = directories,
+            RestrictPowerShellToAllowedDirectories = restrictDirectories
+        };
+    }
+
+    private static List<LaunchpadButton> ApplyButtonOrder(List<LaunchpadButton> buttons, IReadOnlyList<string> order)
+    {
+        if (order.Count == 0)
+        {
+            return buttons;
+        }
+
+        var positions = order
+            .Select((id, index) => (id, index))
+            .GroupBy(item => item.id, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.First().index, StringComparer.OrdinalIgnoreCase);
+
+        return buttons
+            .Select((button, originalIndex) => (button, originalIndex))
+            .OrderBy(item => positions.TryGetValue(item.button.Id, out var position) ? position : int.MaxValue)
+            .ThenBy(item => item.originalIndex)
+            .Select(item => item.button)
+            .ToList();
     }
 }

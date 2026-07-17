@@ -10,6 +10,8 @@ public sealed class LaunchpadTab
 
     public List<LaunchpadButton> Buttons { get; set; } = [];
 
+    public List<string> ButtonOrder { get; set; } = [];
+
     public LaunchpadTab Clone()
     {
         return new LaunchpadTab
@@ -17,7 +19,8 @@ public sealed class LaunchpadTab
             Id = Id,
             Name = Name,
             IsReadOnly = IsReadOnly,
-            Buttons = [.. Buttons.Select(button => button.Clone())]
+            Buttons = [.. Buttons.Select(button => button.Clone())],
+            ButtonOrder = [.. ButtonOrder]
         };
     }
 }

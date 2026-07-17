@@ -102,4 +102,66 @@ public sealed class UserConfigEditorTests
 
         Assert.Empty(updated.Tabs);
     }
+
+    [Fact]
+    public void MoveButtonWithinTab_PersistsOrderForSharedButtonsWithoutCopyingThem()
+    {
+        var editor = new UserConfigEditor();
+        var userConfig = new LaunchpadConfig();
+        var effectiveConfig = new LaunchpadConfig
+        {
+            Tabs =
+            [
+                new LaunchpadTab
+                {
+                    Id = "general",
+                    Name = "General",
+                    Buttons =
+                    [
+                        new LaunchpadButton { Id = "first", Name = "First" },
+                        new LaunchpadButton { Id = "second", Name = "Second" }
+                    ]
+                }
+            ]
+        };
+
+        var updated = editor.MoveButtonWithinTab(userConfig, effectiveConfig, "general", "second", -1);
+        var merged = new LaunchpadConfigMerger().Merge(effectiveConfig, updated);
+
+        Assert.Empty(updated.Tabs[0].Buttons);
+        Assert.Equal(["second", "first"], updated.Tabs[0].ButtonOrder);
+        Assert.Equal(["second", "first"], merged.Tabs[0].Buttons.Select(button => button.Id));
+    }
+
+    [Fact]
+    public void TabEdits_DoNotModifyReadOnlySharedTab()
+    {
+        var editor = new UserConfigEditor();
+        var userConfig = new LaunchpadConfig();
+        var effectiveConfig = new LaunchpadConfig
+        {
+            Tabs = [new LaunchpadTab { Id = "team", Name = "Team", IsReadOnly = true }]
+        };
+
+        var renamed = editor.RenameTab(userConfig, effectiveConfig, "team", "Changed");
+        var deleted = editor.DeleteTab(userConfig, effectiveConfig, "team");
+
+        Assert.Empty(renamed.Tabs);
+        Assert.Empty(deleted.HiddenTabIds);
+    }
+
+    [Fact]
+    public void DeleteButton_DoesNotHideReadOnlySharedButton()
+    {
+        var editor = new UserConfigEditor();
+        var userConfig = new LaunchpadConfig();
+        var effectiveConfig = new LaunchpadConfig
+        {
+            Tabs = [new LaunchpadTab { Id = "team", Buttons = [new LaunchpadButton { Id = "required", IsReadOnly = true }] }]
+        };
+
+        var updated = editor.DeleteButton(userConfig, effectiveConfig, "required");
+
+        Assert.Empty(updated.HiddenButtonIds);
+    }
 }

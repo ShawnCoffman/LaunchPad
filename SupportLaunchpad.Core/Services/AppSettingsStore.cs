@@ -19,7 +19,15 @@ public sealed class AppSettingsStore
         EnsureExists();
 
         var json = _fileSystem.ReadAllText(_appPaths.AppSettingsPath);
-        return string.IsNullOrWhiteSpace(json) ? AppSettingsFactory.CreateDefault() : AppSettingsSerializer.Deserialize(json);
+        var settings = string.IsNullOrWhiteSpace(json) ? AppSettingsFactory.CreateDefault() : AppSettingsSerializer.Deserialize(json);
+        var managedSharedPath = Environment.GetEnvironmentVariable("SUPPORT_LAUNCHPAD_SHARED_CONFIG");
+        if (!string.IsNullOrWhiteSpace(managedSharedPath))
+        {
+            settings.UseSharedConfig = true;
+            settings.SharedConfigPath = managedSharedPath.Trim();
+        }
+
+        return settings;
     }
 
     public void Save(LocalAppSettings settings)
@@ -30,7 +38,7 @@ public sealed class AppSettingsStore
             _fileSystem.CreateDirectory(directory);
         }
 
-        _fileSystem.WriteAllText(_appPaths.AppSettingsPath, AppSettingsSerializer.Serialize(settings));
+        _fileSystem.WriteAllTextAtomic(_appPaths.AppSettingsPath, AppSettingsSerializer.Serialize(settings));
     }
 
     private void EnsureExists()

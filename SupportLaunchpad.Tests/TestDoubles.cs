@@ -24,6 +24,24 @@ internal sealed class FakeFileSystem : IFileSystem
         }
     }
 
+    public void WriteAllTextAtomic(string path, string contents) => WriteAllText(path, contents);
+
+    public void AppendAllText(string path, string contents)
+    {
+        _files.TryGetValue(Normalize(path), out var existing);
+        WriteAllText(path, existing + contents);
+    }
+
+    public void CopyFile(string sourcePath, string destinationPath, bool overwrite)
+    {
+        if (!overwrite && FileExists(destinationPath))
+        {
+            throw new IOException("Destination exists.");
+        }
+
+        WriteAllText(destinationPath, ReadAllText(sourcePath));
+    }
+
     public void CreateDirectory(string path)
     {
         _directories.Add(Normalize(path));

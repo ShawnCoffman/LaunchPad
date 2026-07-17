@@ -80,4 +80,43 @@ public sealed class LaunchServiceTests
         Assert.False(result.Success);
         Assert.Contains("outside the allowed directories", result.ErrorMessage);
     }
+
+    [Fact]
+    public void BuildStartInfo_IncludesCommandArguments()
+    {
+        var fileSystem = new FakeFileSystem();
+        var service = new LaunchService(fileSystem, new FakeProcessStarter(), new FakeLogger(), new LaunchpadValidator(fileSystem));
+
+        var startInfo = service.BuildStartInfo(new LaunchRequest
+        {
+            Button = new LaunchpadButton
+            {
+                Name = "Ping",
+                ActionType = LaunchActionType.Command,
+                Path = "ping",
+                Arguments = "example.com -n 1"
+            },
+            Settings = new LaunchpadSettings()
+        });
+
+        Assert.Equal("cmd.exe", startInfo.FileName);
+        Assert.Equal("/c ping example.com -n 1", startInfo.Arguments);
+    }
+
+    [Fact]
+    public void Launch_DeniesPowerShellWhenDirectoryRestrictionHasNoAllowedDirectories()
+    {
+        var fileSystem = new FakeFileSystem();
+        fileSystem.AddFile(@"C:\Scripts\demo.ps1");
+        var service = new LaunchService(fileSystem, new FakeProcessStarter(), new FakeLogger(), new LaunchpadValidator(fileSystem));
+
+        var result = service.Launch(new LaunchRequest
+        {
+            Button = new LaunchpadButton { Name = "Script", ActionType = LaunchActionType.PowerShell, Path = @"C:\Scripts\demo.ps1" },
+            Settings = new LaunchpadSettings { RestrictPowerShellToAllowedDirectories = true }
+        });
+
+        Assert.False(result.Success);
+        Assert.Contains("outside the allowed directories", result.ErrorMessage);
+    }
 }
